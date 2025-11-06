@@ -1,0 +1,9 @@
+reddit_data.db
+
+subreddits/
+
+__pycache__/
+*.pyc
+
+.vscode/
+.idea/
