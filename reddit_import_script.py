@@ -10,27 +10,28 @@ def create_database(db_path):
     
     #TABLE submissions 
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS submissions (
-        id TEXT PRIMARY KEY,
-        subreddit TEXT,
-        title TEXT,
-        selftext TEXT,
-        author TEXT,
-        created_utc INTEGER,
-        score INTEGER,
-        num_comments INTEGER,
-        url TEXT,
-        is_self BOOLEAN,
-        retrieved_on INTEGER,
-        stickied BOOLEAN,
-        over_18 BOOLEAN,
-        spoiler BOOLEAN,
-        locked BOOLEAN,
-        distinguished TEXT,
-        permalink TEXT
-    )
+    CREATE TABLE submissions (
+    id TEXT PRIMARY KEY,
+    subreddit TEXT,
+    title TEXT,
+    selftext TEXT,
+    author TEXT,
+    created_utc INTEGER,
+    score INTEGER,
+    num_comments INTEGER,
+    is_self BOOLEAN,
+    retrieved_on INTEGER,
+    stickied BOOLEAN,
+    over_18 BOOLEAN,
+    spoiler BOOLEAN,
+    locked BOOLEAN,
+    distinguished TEXT,
+    permalink TEXT,
+    has_image BOOLEAN,
+    image_url TEXT
+);
     ''')
-    #TABLE comments
+#TABLE comments
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS comments (
         id TEXT PRIMARY KEY,
@@ -59,7 +60,6 @@ def create_database(db_path):
     conn.commit()
     return conn
 
-#decompress the zst file 16KB chunks at a time
 def decompress_zst_file(file_path, chunk_size=16384): 
     dctx = zstd.ZstdDecompressor(max_window_size=2**31)
     
@@ -77,26 +77,41 @@ def import_submissions(conn, file_path, batch_size=100000):
     submissions = []
     count = 0
     errors = 0
-    
+
     print(f"Importing submissions from {file_path}...")
-    
+
     try:
         for line in decompress_zst_file(file_path):
             try:
                 data = json.loads(line)
-                
-                submission_id = data['id']
-                
+                submission_id = data.get("id")
+
+                post_hint = data.get("post_hint")
+                domain = str(data.get("domain") or "")
+                external_url = data.get("url")
+
+                has_image = False
+                image_url = None
+                if post_hint == "image" or domain.startswith(("i.redd.it", "i.imgur.com")):
+                    has_image = True
+                    image_url = external_url or None
+
+                selftext = data.get("selftext")
+                if not selftext:
+                    if not data.get("is_self") and external_url:
+                        selftext = external_url
+                    else:
+                        selftext = None
+
                 submissions.append((
                     submission_id,
                     data.get('subreddit'),
                     data.get('title'),
-                    data.get('selftext'),
+                    selftext,          
                     data.get('author'),
                     data.get('created_utc'),
                     data.get('score'),
                     data.get('num_comments'),
-                    data.get('url'),
                     data.get('is_self'),
                     data.get('retrieved_on'),
                     data.get('stickied'),
@@ -104,22 +119,25 @@ def import_submissions(conn, file_path, batch_size=100000):
                     data.get('spoiler'),
                     data.get('locked'),
                     data.get('distinguished'),
-                    data.get('permalink')
+                    data.get('permalink'),
+                    has_image,
+                    image_url
                 ))
-                
+
                 count += 1
-                
+
                 if len(submissions) >= batch_size:
                     cursor.executemany('''
-                    INSERT OR REPLACE INTO submissions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    INSERT OR REPLACE INTO submissions 
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     ''', submissions)
                     conn.commit()
                     print(f"  Imported {count} submissions...")
                     submissions = []
-                    
+
             except json.JSONDecodeError as e:
                 errors += 1
-                if errors < 10:  
+                if errors < 10:
                     print(f"  JSON error (line {count + errors}): {str(e)[:100]}")
                 continue
             except Exception as e:
@@ -127,15 +145,16 @@ def import_submissions(conn, file_path, batch_size=100000):
                 if errors < 10:
                     print(f"  Import error (line {count + errors}): {str(e)[:100]}")
                 continue
-        
+
         if submissions:
             cursor.executemany('''
-            INSERT OR REPLACE INTO submissions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT OR REPLACE INTO submissions 
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ''', submissions)
             conn.commit()
-        
+
         print(f"Imported {count} submissions ({errors} errors)\n")
-        
+
     except Exception as e:
         print(f"Fatal error reading file: {e}\n")
 
@@ -209,9 +228,12 @@ def get_file_size_mb(file_path):
 def main():
     db_path = 'reddit_data.db'
     
-    print("Creating database...")
-    conn = create_database(db_path)
-    print("Database created\n")
+    if os.path.exists(db_path):
+        print(f"Opening existing database: {db_path}")
+        conn = sqlite3.connect(db_path)
+    else:
+        print(f"Database not found. Creating new database: {db_path}")
+        conn = create_database(db_path)  # Assuming this creates tables too
     
     submission_files = []
     comment_files = []
@@ -248,6 +270,5 @@ def main():
     print(f"Database saved to: {db_path}")
     
     conn.close()
-
 if __name__ == '__main__':
     main()
