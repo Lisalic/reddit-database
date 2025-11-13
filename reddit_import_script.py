@@ -233,12 +233,12 @@ def main():
         conn = sqlite3.connect(db_path)
     else:
         print(f"Database not found. Creating new database: {db_path}")
-        conn = create_database(db_path)  # Assuming this creates tables too
+        conn = create_database(db_path)  
     
     submission_files = []
     comment_files = []
     
-    for root, dirs, files in os.walk('subreddits'):
+    for root, dirs, files in os.walk('zst_files'):
         for file in files:
             file_path = os.path.join(root, file)
             if file.endswith('_submissions.zst'):
