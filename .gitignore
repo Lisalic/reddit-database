@@ -1,9 +1,12 @@
-reddit_data.db
-
-subreddits/
-
 __pycache__/
 *.pyc
 
+.DS_Store
+
 .vscode/
 .idea/
+
+reddit_data.db
+zst_files/
+
+.env
