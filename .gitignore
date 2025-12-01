@@ -6,7 +6,9 @@ __pycache__/
 .vscode/
 .idea/
 
-reddit_data.db
 zst_files/
 
 .env
+*.txt
+*.db
+*.zst
